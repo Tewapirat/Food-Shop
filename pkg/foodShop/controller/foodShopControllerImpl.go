@@ -46,6 +46,7 @@ func (c *FoodShopControllerImpl) ServeCLI() {
 		fmt.Fprintln(c.out, "1) View all menu items")
 		fmt.Fprintln(c.out, "2) View all promotions")
 		fmt.Fprintln(c.out, "3) Quote order (JSON input)")
+		fmt.Fprintln(c.out, "4) View order history")
 		fmt.Fprintln(c.out, "0) Exit")
 
 		rl.SetPrompt("Select: ")
@@ -71,6 +72,8 @@ func (c *FoodShopControllerImpl) ServeCLI() {
 			if ok := c.handleQuoteOrderJSON(rl); !ok {
 				return
 			}
+		case "4":
+			c.handleViewOrderHistory()
 		case "0":
 			fmt.Fprintln(c.out, "Thankyou.")
 			return
@@ -174,6 +177,50 @@ func (c *FoodShopControllerImpl) handleQuoteOrderJSON(rl *readline.Instance) boo
 
 	return true
 }
+
+func (c *FoodShopControllerImpl) handleViewOrderHistory() {
+	count, err := c.foodShopService.CountOrderHistory()
+	if err != nil {
+		fmt.Fprintln(c.out, err)
+		return
+	}
+
+	entries, err := c.foodShopService.ListOrderHistory()
+	if err != nil {
+		fmt.Fprintln(c.out, err)
+		return
+	}
+
+	fmt.Fprintln(c.out)
+	fmt.Fprintln(c.out, "--- Order History ---")
+	fmt.Fprintln(c.out)
+	fmt.Fprintf(c.out, "Total orders: %d\n\n", count)
+
+	if count == 0 {
+		fmt.Fprintln(c.out, "No orders yet.")
+		return
+	}
+
+	for _, e := range entries {
+		fmt.Fprintf(c.out, "Order #%d | %s | member=%v\n",
+			e.OrderNo, e.CreatedAt.Format("2006-01-02 15:04:05"), e.Member)
+		fmt.Fprintln(c.out)
+		fmt.Fprintln(c.out, "CODE    | NAME         | QTY | UNIT PRICE | LINE TOTAL")
+		fmt.Fprintln(c.out, "--------+--------------+-----+------------+-----------")
+		for _, ln := range e.Line {
+			fmt.Fprintf(c.out, "%-7s | %-12s | %3d | %-10s | %s\n",
+				ln.Code, ln.Name, ln.Qty, ln.UnitPrice.String(), ln.LineTotal.String())
+		}
+
+		fmt.Fprintln(c.out)
+		fmt.Fprintf(c.out, "%-16s : %s\n", "Subtotal",        e.Subtotal.String())
+		fmt.Fprintf(c.out, "%-16s : %s\n", "Pair Discount",   e.PairDiscount.String())
+		fmt.Fprintf(c.out, "%-16s : %s\n", "Member Discount", e.MemberDiscount.String())
+		fmt.Fprintf(c.out, "%-16s : %s\n", "Total",           e.Total.String())
+		fmt.Fprintln(c.out, "\n------------------------------")
+	}
+}
+
 
 // readline-aware readLine
 func readLine(rl *readline.Instance) (string, error) {
