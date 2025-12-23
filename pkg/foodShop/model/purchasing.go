@@ -9,11 +9,15 @@ type PurchasingRequest struct {
 }
 
 type OrderLine struct {
-	Code MenuItemCode
-	Qty  int
+	Code      MenuItemCode
+	Name      string
+	Qty       int
+	UnitPrice domain.Money
+	LineTotal domain.Money
 }
 
 type OrderQuote struct {
+	Lines          []OrderLine
 	Subtotal       domain.Money
 	PairDiscount   domain.Money
 	MemberDiscount domain.Money

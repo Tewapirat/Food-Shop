@@ -51,6 +51,8 @@ func (s *foodShopServiceImpl) QuoteOrder(req model.PurchasingRequest) (model.Ord
 	qtyByCode := make(map[model.MenuItemCode]int)
 	priceByCode := make(map[model.MenuItemCode]domain.Money)
 
+	lines := make([]model.OrderLine, 0, len(req.Items))
+
 	var subtotal domain.Money
 
 	for rawCode, qty := range req.Items {
@@ -65,16 +67,24 @@ func (s *foodShopServiceImpl) QuoteOrder(req model.PurchasingRequest) (model.Ord
 
 		menuItem, err := s.foodShopRepository.FindMenuItemByCode(code)
 		if err != nil {
-			// ถ้า repo มี error ชนิด not found ของตัวเอง แนะนำให้ map เป็น domain/usecase error ให้ชัด
-			// ที่นี่ทำแบบห่อด้วย context เพื่อ debug ง่าย และปล่อยให้ controller ตัดสินใจ response
 			return model.OrderQuote{}, fmt.Errorf("find menu item by code %s: %w", code, err)
 		}
 
-		// เก็บราคาต่อ code ไว้ (กัน lookup ซ้ำใน calculatePairDiscount)
 		priceByCode[code] = menuItem.Price
 		qtyByCode[code] += qty
 
+
+		lineTotal := menuItem.Price.MulInt(qty)
 		subtotal = subtotal.Add(menuItem.Price.MulInt(qty))
+
+
+		lines = append(lines, model.OrderLine{
+			Code:      code,
+			Name:      menuItem.Name,
+			Qty:       qty,
+			UnitPrice: menuItem.Price,
+			LineTotal: lineTotal,
+		})
 	}
 
 	pairDiscount, err := calculatePairDiscount(qtyByCode, priceByCode)
@@ -92,6 +102,7 @@ func (s *foodShopServiceImpl) QuoteOrder(req model.PurchasingRequest) (model.Ord
 	total := afterPairDiscount.Sub(memberDiscount)
 
 	return model.OrderQuote{
+		Lines:          lines,
 		Subtotal:       subtotal,
 		PairDiscount:   pairDiscount,
 		MemberDiscount: memberDiscount,
@@ -99,7 +110,6 @@ func (s *foodShopServiceImpl) QuoteOrder(req model.PurchasingRequest) (model.Ord
 	}, nil
 }
 
-// แยก normalize ออกมาเพื่อให้อ่านง่าย + เทสต์ง่าย
 func normalizeItemCode(raw string) (model.MenuItemCode, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -108,7 +118,7 @@ func normalizeItemCode(raw string) (model.MenuItemCode, error) {
 	return model.MenuItemCode(strings.ToUpper(trimmed)), nil
 }
 
-// pure function: ไม่มี IO, ไม่มี repo call, ไม่กลืน error
+
 func calculatePairDiscount(
 	qtyByCode map[model.MenuItemCode]int,
 	priceByCode map[model.MenuItemCode]domain.Money,
@@ -123,7 +133,6 @@ func calculatePairDiscount(
 
 		unitPrice, ok := priceByCode[code]
 		if !ok {
-			// เป็น “สภาวะผิดปกติ” เพราะ code นี้ถูกคิด subtotal ไปแล้วแต่ไม่มีราคา
 			return domain.Money(0), &_foodShopException.MenuItemPriceMissingError{Code: code}
 		}
 

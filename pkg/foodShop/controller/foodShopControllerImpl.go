@@ -52,14 +52,13 @@ func (c *FoodShopControllerImpl) ServeCLI() {
 		choice, err := readLine(rl)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				fmt.Fprintln(c.out, "\nEOF received. Bye.")
+				fmt.Fprintln(c.out, "\nEOF received. Thankyou.")
 				return
 			}
 			fmt.Fprintln(c.out, "\nRead error:", err)
 			return
 		}
 		if choice == "" {
-			// กรณี Ctrl+C แล้วเราคืน "" -> ให้ loop ต่อ
 			continue
 		}
 
@@ -73,7 +72,7 @@ func (c *FoodShopControllerImpl) ServeCLI() {
 				return
 			}
 		case "0":
-			fmt.Fprintln(c.out, "Bye.")
+			fmt.Fprintln(c.out, "Thankyou.")
 			return
 		default:
 			fmt.Fprintln(c.out, "Invalid choice. Please select 0-3.")
@@ -151,11 +150,27 @@ func (c *FoodShopControllerImpl) handleQuoteOrderJSON(rl *readline.Instance) boo
 		return true
 	}
 
+
+	fmt.Fprintln(c.out, "\n--- Order Items ---")
+	fmt.Fprintln(c.out)
+	fmt.Fprintln(c.out, "--------+--------------+-----+------------+-----------")
+	fmt.Fprintln(c.out, "CODE    | NAME         | QTY | UNIT PRICE |   TOTAL.  ")
+	fmt.Fprintln(c.out, "--------+--------------+-----+------------+-----------")
+
+	for _, ln := range quote.Lines {
+    	fmt.Fprintf(
+        c.out,
+        "%-7s | %-12s | %3d | %-10s | %s\n",
+        ln.Code, ln.Name, ln.Qty, ln.UnitPrice.String(), ln.LineTotal.String(),
+		)
+	}
+
 	fmt.Fprintln(c.out, "\n--- Order Quote ---")
-	fmt.Fprintln(c.out, "Subtotal      :", quote.Subtotal.String())
-	fmt.Fprintln(c.out, "Pair Discount :", quote.PairDiscount.String())
-	fmt.Fprintln(c.out, "Member Disc.  :", quote.MemberDiscount.String())
-	fmt.Fprintln(c.out, "Total         :", quote.Total.String())
+	fmt.Fprintln(c.out)
+	fmt.Fprintf(c.out, "%-16s : %s\n", "Subtotal",        quote.Subtotal.String())
+	fmt.Fprintf(c.out, "%-16s : %s\n", "Pair Discount",   quote.PairDiscount.String())
+	fmt.Fprintf(c.out, "%-16s : %s\n", "Member Discount", quote.MemberDiscount.String())
+	fmt.Fprintf(c.out, "%-16s : %s\n", "Total",           quote.Total.String())	
 
 	return true
 }
