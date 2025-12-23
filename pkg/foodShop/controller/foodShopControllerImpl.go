@@ -205,6 +205,7 @@ func (c *FoodShopControllerImpl) handleViewOrderHistory() {
 		fmt.Fprintf(c.out, "Order #%d | %s | member=%v\n",
 			e.OrderNo, e.CreatedAt.Format("2006-01-02 15:04:05"), e.Member)
 		fmt.Fprintln(c.out)
+
 		fmt.Fprintln(c.out, "CODE    | NAME         | QTY | UNIT PRICE | LINE TOTAL")
 		fmt.Fprintln(c.out, "--------+--------------+-----+------------+-----------")
 		for _, ln := range e.Line {
