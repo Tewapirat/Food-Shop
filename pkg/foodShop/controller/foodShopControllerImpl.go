@@ -92,7 +92,7 @@ func (c *FoodShopControllerImpl) handleViewMenu() {
 	fmt.Fprintln(c.out, "--- Menu Catalog ---")
 	fmt.Fprintln(c.out)
 	fmt.Fprintln(c.out, "--------+--------------+-----------")
-	fmt.Fprintln(c.out, "CODE    | NAME         | PRICE")
+	fmt.Fprintln(c.out, "CODE    | NAME         | PRICE		")
 	fmt.Fprintln(c.out, "--------+--------------+-----------")
 
 	for _, it := range items {
