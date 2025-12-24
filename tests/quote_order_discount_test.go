@@ -32,7 +32,7 @@ func TestQuoteOrder_DiscountPolicies(t *testing.T) {
 
 	cases := []tc{
 		{
-			label: "Pair discount: GREEN(4) => 2 bundles, discount = 8 THB",
+			label: "Pair: GREEN(4) => 2 bundles",
 			in: _foodShopModel.PurchasingRequest{
 				Items:  map[string]int{"GREEN": 4},
 				Member: false,
@@ -50,7 +50,7 @@ func TestQuoteOrder_DiscountPolicies(t *testing.T) {
 			expectedQty: map[_foodShopModel.MenuItemCode]int{"GREEN": 4},
 		},
 		{
-			label: "Pair discount: GREEN(3) => 1 bundle only (remainder not discounted)",
+			label: "Pair: GREEN(3) => 1 bundle + remainder",
 			in: _foodShopModel.PurchasingRequest{
 				Items:  map[string]int{"GREEN": 3},
 				Member: false,
@@ -67,7 +67,41 @@ func TestQuoteOrder_DiscountPolicies(t *testing.T) {
 			expectedQty:            map[_foodShopModel.MenuItemCode]int{"GREEN": 3},
 		},
 		{
-			label: "Pair discount: GREEN(2)+ORANGE(2) => sum of discounts per code",
+			label: "Pair discount: PINK(2) => 1 bundle",
+			in: _foodShopModel.PurchasingRequest{
+				Items:  map[string]int{"PINK": 2},
+				Member: false,
+			},
+			setupMenuMock: func(r *_foodShopRepository.FoodShopRepositoryMock) {
+				r.On("FindMenuItemByCode", _foodShopModel.MenuItemCode("PINK")).
+					Return(_foodShopModel.MenuItem{Code: "PINK", Name: "Pink set", Price: domain.THB(80)}, nil).
+					Once()
+			},
+			expectedSubtotal:       domain.THB(160),
+			expectedPairDiscount:   domain.THB(8),
+			expectedMemberDiscount: domain.THB(0),
+			expectedTotal:          domain.THB(152),
+			expectedQty:            map[_foodShopModel.MenuItemCode]int{"PINK": 2},
+		},
+		{
+			label: "Pair discount: PINK(4) => 2 bundles",
+			in: _foodShopModel.PurchasingRequest{
+				Items:  map[string]int{"PINK": 4},
+				Member: false,
+			},
+			setupMenuMock: func(r *_foodShopRepository.FoodShopRepositoryMock) {
+				r.On("FindMenuItemByCode", _foodShopModel.MenuItemCode("PINK")).
+					Return(_foodShopModel.MenuItem{Code: "PINK", Name: "Pink set", Price: domain.THB(80)}, nil).
+					Once()
+			},
+			expectedSubtotal:       domain.THB(320),
+			expectedPairDiscount:   domain.THB(16),
+			expectedMemberDiscount: domain.THB(0),
+			expectedTotal:          domain.THB(304),
+			expectedQty:            map[_foodShopModel.MenuItemCode]int{"PINK": 4},
+		},
+		{
+			label: "Pair: GREEN(2)+ORANGE(2) => sum per code",
 			in: _foodShopModel.PurchasingRequest{
 				Items:  map[string]int{"GREEN": 2, "ORANGE": 2},
 				Member: false,
@@ -87,7 +121,7 @@ func TestQuoteOrder_DiscountPolicies(t *testing.T) {
 			expectedQty:            map[_foodShopModel.MenuItemCode]int{"GREEN": 2, "ORANGE": 2},
 		},
 		{
-			label: "No pair discount: RED(2) is not eligible",
+			label: "Pair: RED(2) not eligible => 0 pair discount",
 			in: _foodShopModel.PurchasingRequest{
 				Items:  map[string]int{"RED": 2},
 				Member: false,
@@ -104,21 +138,67 @@ func TestQuoteOrder_DiscountPolicies(t *testing.T) {
 			expectedQty:            map[_foodShopModel.MenuItemCode]int{"RED": 2},
 		},
 		{
-			label: "Normalize + merge qty: {\" green \":1,\"GREEN\":1} => qtyByCode GREEN=2",
+			label: "No cross-code pairing: GREEN(1)+ORANGE(1) => 0 pair discount",
 			in: _foodShopModel.PurchasingRequest{
-				Items:  map[string]int{" green ": 1, "GREEN": 1},
+				Items:  map[string]int{"GREEN": 1, "ORANGE": 1},
 				Member: false,
 			},
 			setupMenuMock: func(r *_foodShopRepository.FoodShopRepositoryMock) {
 				r.On("FindMenuItemByCode", _foodShopModel.MenuItemCode("GREEN")).
 					Return(_foodShopModel.MenuItem{Code: "GREEN", Name: "Green set", Price: domain.THB(40)}, nil).
-					Twice()
+					Once()
+				r.On("FindMenuItemByCode", _foodShopModel.MenuItemCode("ORANGE")).
+					Return(_foodShopModel.MenuItem{Code: "ORANGE", Name: "Orange set", Price: domain.THB(120)}, nil).
+					Once()
 			},
-			expectedSubtotal:       domain.THB(80),
-			expectedPairDiscount:   domain.THB(4),
+			expectedSubtotal:       domain.THB(160), // 40 + 120
+			expectedPairDiscount:   domain.THB(0),   // cross-code should NOT form a bundle
 			expectedMemberDiscount: domain.THB(0),
-			expectedTotal:          domain.THB(76),
-			expectedQty:            map[_foodShopModel.MenuItemCode]int{"GREEN": 2},
+			expectedTotal:          domain.THB(160),
+			expectedQty: map[_foodShopModel.MenuItemCode]int{
+				"GREEN":  1,
+				"ORANGE": 1,
+			},
+		},
+		{
+			label: "Member without pair: RED(2), member=true => 10% off",
+			in: _foodShopModel.PurchasingRequest{
+				Items:  map[string]int{"RED": 2},
+				Member: true,
+			},
+			setupMenuMock: func(r *_foodShopRepository.FoodShopRepositoryMock) {
+				r.On("FindMenuItemByCode", _foodShopModel.MenuItemCode("RED")).
+					Return(_foodShopModel.MenuItem{Code: "RED", Name: "Red set", Price: domain.THB(50)}, nil).
+					Once()
+			},
+			expectedSubtotal:       domain.THB(100),
+			expectedPairDiscount:   domain.THB(0),
+			expectedMemberDiscount: domain.THB(10), // 10% of 100
+			expectedTotal:          domain.THB(90),
+			expectedQty: map[_foodShopModel.MenuItemCode]int{
+				"RED": 2,
+			},
+		},
+		{
+			label: "Member + multi-code: GREEN(2)+RED(1), member=true => member stacks after pair on total",
+			in: _foodShopModel.PurchasingRequest{
+				Items:  map[string]int{"GREEN": 2, "RED": 1},
+				Member: true,
+			},
+			setupMenuMock: func(r *_foodShopRepository.FoodShopRepositoryMock) {
+				r.On("FindMenuItemByCode", _foodShopModel.MenuItemCode("GREEN")).
+					Return(_foodShopModel.MenuItem{Code: "GREEN", Name: "Green set", Price: domain.THB(40)}, nil).
+					Once()
+				r.On("FindMenuItemByCode", _foodShopModel.MenuItemCode("RED")).
+					Return(_foodShopModel.MenuItem{Code: "RED", Name: "Red set", Price: domain.THB(50)}, nil).
+					Once()
+			},
+			expectedSubtotal:       domain.THB(130),
+			expectedPairDiscount:   domain.THB(4),
+			expectedMemberDiscount: satang(1260),  // 12.60 THB (10% of 126.00)
+			expectedTotal:          satang(11340), // 113.40 THB
+
+			expectedQty: map[_foodShopModel.MenuItemCode]int{"GREEN": 2, "RED": 1},
 		},
 	}
 
@@ -126,6 +206,9 @@ func TestQuoteOrder_DiscountPolicies(t *testing.T) {
 		t.Run(c.label, func(t *testing.T) {
 			foodShopRepositoryMock := new(_foodShopRepository.FoodShopRepositoryMock)
 			orderHistoryRepositoryMock := new(_orderHistoryRepository.OrderHistoryRepositoryMock)
+
+			foodShopRepositoryMock.Test(t)
+			orderHistoryRepositoryMock.Test(t)
 
 			c.setupMenuMock(foodShopRepositoryMock)
 
@@ -171,12 +254,12 @@ func TestQuoteOrder_DiscountPolicies(t *testing.T) {
 				Return(nil).
 				Once()
 
-			svc := _foodShopService.NewFoodShopServiceImpl(
+			foodShopService := _foodShopService.NewFoodShopServiceImpl(
 				foodShopRepositoryMock,
 				orderHistoryRepositoryMock,
 			)
 
-			res, err := svc.QuoteOrder(c.in)
+			res, err := foodShopService.QuoteOrder(c.in)
 			assert.NoError(t, err)
 
 			assert.Equal(t, c.expectedSubtotal, res.Subtotal)

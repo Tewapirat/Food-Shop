@@ -58,9 +58,16 @@ func (s *foodShopServiceImpl) GetPromotions() ([]_foodShopModel.Promotion, error
 	return s.foodShopRepository.ListPromotions()
 }
 
-// 1. check empty order
-// 2. pepare state for calculation
-// 3. loop items: validate → normalize → lookup → total price
+// QuoteOrder workflow
+// 1) Validate request
+// 2) Prepare state for calculation / promotion rules
+// 3) Process each input item (rawCode -> qty)
+// 4) Calculate pair discount (policy-level discount)
+// 5) Apply discounts in correct order
+// 6) Persist order history (side effect)
+// 7) Return quote result
+
+
 
 func (s *foodShopServiceImpl) QuoteOrder(req _foodShopModel.PurchasingRequest) (_foodShopModel.OrderQuote, error) {
 	if len(req.Items) == 0 {

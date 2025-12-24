@@ -29,7 +29,7 @@ func TestQuoteOrderSuccess(t *testing.T) {
 
 	cases := []tc{
 		{
-			label: "Success: no member, pair discount applies to GREEN(2)",
+			label: "Success: mixed items, pair applies to GREEN(2), no member",
 			in: _foodShopModel.PurchasingRequest{
 				Items:  map[string]int{"RED": 1, "GREEN": 2},
 				Member: false,
@@ -74,28 +74,6 @@ func TestQuoteOrderSuccess(t *testing.T) {
 					Once()
 			},
 		},
-		{
-			label: "Success: normalize code (\" green \") works",
-			in: _foodShopModel.PurchasingRequest{
-				Items:  map[string]int{" green ": 2},
-				Member: false,
-			},
-			expected: _foodShopModel.OrderQuote{
-				Subtotal:       domain.THB(80),
-				PairDiscount:   domain.THB(4),
-				MemberDiscount: domain.THB(0),
-				Total:          domain.THB(76),
-			},
-			expectedQty: map[_foodShopModel.MenuItemCode]int{
-				"GREEN": 2,
-			},
-			setupMenuMock: func(r * _foodShopRepository.FoodShopRepositoryMock) {
-				// normalize แล้วจะเรียกด้วย "GREEN"
-				r.On("FindMenuItemByCode", _foodShopModel.MenuItemCode("GREEN")).
-					Return(_foodShopModel.MenuItem{Code: "GREEN", Name: "Green set", Price: domain.THB(40)}, nil).
-					Once()
-			},
-		},
 	}
 
 	for _, c := range cases {
@@ -103,21 +81,20 @@ func TestQuoteOrderSuccess(t *testing.T) {
 			foodShopRepositoryMock := new(_foodShopRepository.FoodShopRepositoryMock)
 			orderHistoryRepositoryMock := new(_orderHistoryRepository.OrderHistoryRepositoryMock)
 
-			// เตรียม menu item mock ให้ตรงกับเคส
+			foodShopRepositoryMock.Test(t)
+			orderHistoryRepositoryMock.Test(t)
+
 			c.setupMenuMock(foodShopRepositoryMock)
 
-			// Expect: QuoteOrder สำเร็จต้อง Add 1 ครั้ง
 			orderHistoryRepositoryMock.
 				On("Add", mock.MatchedBy(func(entry _orderHistoryModel.OrderHistoryEntry) bool {
-					// orderNo จะเริ่ม 1 เพราะเราสร้าง service ใหม่ต่อ subtest
+					
 					if entry.OrderNo != 1 {
 						return false
 					}
-					// CreatedAt ควรถูกเซ็ต (ไม่ zero)
 					if entry.CreatedAt.IsZero() {
 						return false
 					}
-					// ป้องกันค่าหลุด ๆ แบบอนาคตไกลเกิน (optional)
 					if time.Since(entry.CreatedAt) > time.Minute {
 						return false
 					}
@@ -138,7 +115,6 @@ func TestQuoteOrderSuccess(t *testing.T) {
 						return false
 					}
 
-					// ตรวจ Lines แบบไม่พึ่งลำดับจาก map iteration
 					gotQty := lineQtyMap(entry.Line)
 					if len(gotQty) != len(c.expectedQty) {
 						return false
@@ -221,6 +197,9 @@ func TestQuoteOrderFail(t *testing.T) {
 			foodShopRepositoryMock := new(_foodShopRepository.FoodShopRepositoryMock)
 			orderHistoryRepositoryMock := new(_orderHistoryRepository.OrderHistoryRepositoryMock)
 
+			foodShopRepositoryMock.Test(t)
+			orderHistoryRepositoryMock.Test(t)
+
 			foodShopService := _foodShopService.NewFoodShopServiceImpl(
 				foodShopRepositoryMock,
 				orderHistoryRepositoryMock,
@@ -232,7 +211,139 @@ func TestQuoteOrderFail(t *testing.T) {
 			assert.Error(t, err)
 			c.check(t, err)
 
-			// Fail เคสเหล่านี้ return ก่อนเรียก repo/add จึงไม่ต้อง set expectation เพิ่ม
+			foodShopRepositoryMock.AssertNotCalled(t, "FindMenuItemByCode", mock.Anything)
+			orderHistoryRepositoryMock.AssertNotCalled(t, "Add", mock.Anything)
+		})
+	}
+}
+func TestQuoteOrderFail_UnknownMenuItem(t *testing.T) {
+	foodShopRepositoryMock := new(_foodShopRepository.FoodShopRepositoryMock)
+	orderHistoryRepositoryMock := new(_orderHistoryRepository.OrderHistoryRepositoryMock)
+
+	foodShopRepositoryMock.Test(t)
+	orderHistoryRepositoryMock.Test(t)
+
+	in := _foodShopModel.PurchasingRequest{
+		Items:  map[string]int{"BLACK": 1},
+		Member: false,
+	}
+
+	foodShopRepositoryMock.
+		On("FindMenuItemByCode", _foodShopModel.MenuItemCode("BLACK")).
+		Return(_foodShopModel.MenuItem{}, &_foodShopException.UnknownMenuItemError{}).
+		Once()
+
+	foodShopService := _foodShopService.NewFoodShopServiceImpl(
+		foodShopRepositoryMock,
+		orderHistoryRepositoryMock,
+	)
+
+	result, err := foodShopService.QuoteOrder(in)
+
+	assert.Equal(t, _foodShopModel.OrderQuote{}, result)
+	assert.Error(t, err)
+
+	var target *_foodShopException.UnknownMenuItemError
+	assert.ErrorAs(t, err, &target)
+
+	orderHistoryRepositoryMock.AssertNotCalled(t, "Add", mock.Anything)
+
+	foodShopRepositoryMock.AssertExpectations(t)
+	orderHistoryRepositoryMock.AssertExpectations(t)
+}
+func TestQuoteOrder_Normalization(t *testing.T) {
+	type tc struct {
+		label         string
+		in            _foodShopModel.PurchasingRequest
+		expected      _foodShopModel.OrderQuote
+		expectedQty   map[_foodShopModel.MenuItemCode]int
+		setupMenuMock func(r *_foodShopRepository.FoodShopRepositoryMock)
+	}
+
+	cases := []tc{
+		{
+			label: "Normalize code: \" green \" => GREEN",
+			in: _foodShopModel.PurchasingRequest{
+				Items:  map[string]int{" green ": 2},
+				Member: false,
+			},
+			setupMenuMock: func(r *_foodShopRepository.FoodShopRepositoryMock) {
+				r.On("FindMenuItemByCode", _foodShopModel.MenuItemCode("GREEN")).
+					Return(_foodShopModel.MenuItem{Code: "GREEN", Name: "Green set", Price: domain.THB(40)}, nil).
+					Once()
+			},
+			expected: _foodShopModel.OrderQuote{
+				Subtotal:       domain.THB(80),
+				PairDiscount:   domain.THB(4),
+				MemberDiscount: domain.THB(0),
+				Total:          domain.THB(76),
+			},
+			expectedQty: map[_foodShopModel.MenuItemCode]int{"GREEN": 2},
+		},
+		{
+			label: "Normalize + merge qty: {\" green \":1,\"GREEN\":1} => GREEN=2",
+			in: _foodShopModel.PurchasingRequest{
+				Items:  map[string]int{" green ": 1, "GREEN": 1},
+				Member: false,
+			},
+			setupMenuMock: func(r *_foodShopRepository.FoodShopRepositoryMock) {
+				r.On("FindMenuItemByCode", _foodShopModel.MenuItemCode("GREEN")).
+					Return(_foodShopModel.MenuItem{Code: "GREEN", Name: "Green set", Price: domain.THB(40)}, nil).
+					Twice()
+			},
+			expected: _foodShopModel.OrderQuote{
+				Subtotal:       domain.THB(80),
+				PairDiscount:   domain.THB(4),
+				MemberDiscount: domain.THB(0),
+				Total:          domain.THB(76),
+			},
+			expectedQty: map[_foodShopModel.MenuItemCode]int{"GREEN": 2},
+		},
+	}
+
+	for _, c := range cases {
+		c := c
+		t.Run(c.label, func(t *testing.T) {
+			foodShopRepositoryMock := new(_foodShopRepository.FoodShopRepositoryMock)
+			orderHistoryRepositoryMock := new(_orderHistoryRepository.OrderHistoryRepositoryMock)
+
+			foodShopRepositoryMock.Test(t)
+			orderHistoryRepositoryMock.Test(t)
+
+			c.setupMenuMock(foodShopRepositoryMock)
+
+			orderHistoryRepositoryMock.
+				On("Add", mock.Anything).
+				Run(func(args mock.Arguments) {
+					entry := args.Get(0).(_orderHistoryModel.OrderHistoryEntry)
+
+					// ตรวจยอดรวม
+					assert.Equal(t, c.in.Member, entry.Member)
+					assert.Equal(t, c.expected.Subtotal, entry.Subtotal)
+					assert.Equal(t, c.expected.PairDiscount, entry.PairDiscount)
+					assert.Equal(t, c.expected.MemberDiscount, entry.MemberDiscount)
+					assert.Equal(t, c.expected.Total, entry.Total)
+
+					// ตรวจว่า qty หลัง normalize/merge ถูกต้อง
+					gotQty := lineQtyMap(entry.Line)
+					assert.Equal(t, c.expectedQty, gotQty)
+				}).
+				Return(nil).
+				Once()
+
+			foodShopService := _foodShopService.NewFoodShopServiceImpl(
+				foodShopRepositoryMock,
+				orderHistoryRepositoryMock,
+			)
+
+			res, err := foodShopService.QuoteOrder(c.in)
+			assert.NoError(t, err)
+
+			assert.Equal(t, c.expected.Subtotal, res.Subtotal)
+			assert.Equal(t, c.expected.PairDiscount, res.PairDiscount)
+			assert.Equal(t, c.expected.MemberDiscount, res.MemberDiscount)
+			assert.Equal(t, c.expected.Total, res.Total)
+
 			foodShopRepositoryMock.AssertExpectations(t)
 			orderHistoryRepositoryMock.AssertExpectations(t)
 		})
