@@ -190,7 +190,7 @@ You can run this project in 3 ways:
 ### Step 1: Clone the repository
 ```bash
 git clone https://github.com/Tewapirat/Food-Shop.git
-cd food_shop
+cd Food-Shop
 ```
 ### Step 2: Download dependencies
 ```bash
@@ -205,7 +205,7 @@ go run main.go
 ### Step 1: Clone the repository
 ```bash
 git clone https://github.com/Tewapirat/Food-Shop.git
-cd food_shop
+cd Food-Shop
 ```
 ### Step 2: Build the Docker image
 Build the application image from the Dockerfile.
