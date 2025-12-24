@@ -67,7 +67,7 @@ func TestQuoteOrder_DiscountPolicies(t *testing.T) {
 			expectedQty:            map[_foodShopModel.MenuItemCode]int{"GREEN": 3},
 		},
 		{
-			label: "Pair discount: PINK(2) => 1 bundle",
+			label: "Pair: PINK(2) => 1 bundle",
 			in: _foodShopModel.PurchasingRequest{
 				Items:  map[string]int{"PINK": 2},
 				Member: false,
@@ -84,7 +84,7 @@ func TestQuoteOrder_DiscountPolicies(t *testing.T) {
 			expectedQty:            map[_foodShopModel.MenuItemCode]int{"PINK": 2},
 		},
 		{
-			label: "Pair discount: PINK(4) => 2 bundles",
+			label: "Pair: PINK(4) => 2 bundles",
 			in: _foodShopModel.PurchasingRequest{
 				Items:  map[string]int{"PINK": 4},
 				Member: false,
