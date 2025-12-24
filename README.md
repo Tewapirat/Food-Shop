@@ -26,7 +26,8 @@ Command-line interface to browse menus, view promotions, and generate order quot
 0) Exit
 Select:  
 ```
-### All menu item
+### All menu 
+Complete menu catalog listing all available sets with codes, names, and unit prices.
 ```text
 | Code   | Name        | Price (THB) |
 |--------|-------------|-------------|
