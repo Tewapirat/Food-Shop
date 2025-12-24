@@ -62,7 +62,6 @@ func (s *foodShopServiceImpl) GetPromotions() ([]_foodShopModel.Promotion, error
 // 2. pepare state for calculation
 // 3. loop items: validate → normalize → lookup → total price
 
-
 func (s *foodShopServiceImpl) QuoteOrder(req _foodShopModel.PurchasingRequest) (_foodShopModel.OrderQuote, error) {
 	if len(req.Items) == 0 {
 		return _foodShopModel.OrderQuote{}, &_foodShopException.EmptyOrderError{}
@@ -70,6 +69,8 @@ func (s *foodShopServiceImpl) QuoteOrder(req _foodShopModel.PurchasingRequest) (
 
 	qtyByCode := make(map[_foodShopModel.MenuItemCode]int)
 	priceByCode := make(map[_foodShopModel.MenuItemCode]domain.Money)
+
+
 
 	lines := make([]_foodShopModel.OrderLine, 0, len(req.Items))
 
@@ -92,6 +93,8 @@ func (s *foodShopServiceImpl) QuoteOrder(req _foodShopModel.PurchasingRequest) (
 
 		priceByCode[code] = menuItem.Price
 		qtyByCode[code] += qty
+
+
 
 
 		lineTotal := menuItem.Price.MulInt(qty)
@@ -132,6 +135,7 @@ func (s *foodShopServiceImpl) QuoteOrder(req _foodShopModel.PurchasingRequest) (
 	PairDiscount:   pairDiscount,
 	MemberDiscount: memberDiscount,
 	Total:          total,
+	
 })
 
 
@@ -179,3 +183,4 @@ func calculatePairDiscount(
 
 	return totalDiscount, nil
 }
+

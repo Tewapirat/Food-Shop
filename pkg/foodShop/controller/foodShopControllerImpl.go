@@ -219,6 +219,7 @@ func (c *FoodShopControllerImpl) handleViewOrderHistory() {
 		fmt.Fprintf(c.out, "%-16s : %s\n", "Member Discount", e.MemberDiscount.String())
 		fmt.Fprintf(c.out, "%-16s : %s\n", "Total",           e.Total.String())
 		fmt.Fprintln(c.out, "\n------------------------------")
+		fmt.Fprintln(c.out)
 	}
 }
 
