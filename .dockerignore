@@ -1,0 +1,14 @@
+/.vscode
+/assets
+/build
+/.git
+/.gitignore
+
+**/.DS_Store
+**/*.log
+**/*.txt
+
+/bin
+/out
+/tmp
+

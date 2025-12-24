@@ -1,0 +1,148 @@
+package tests
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/TewApirat/food-shop/pkg/foodShop/domain"
+	_foodShopException "github.com/TewApirat/food-shop/pkg/foodShop/exception"
+	_foodShopModel "github.com/TewApirat/food-shop/pkg/foodShop/model"
+	_foodShopRepository "github.com/TewApirat/food-shop/pkg/foodShop/repository"
+	_foodShopService "github.com/TewApirat/food-shop/pkg/foodShop/service"
+	_orderHistoryReppsitory "github.com/TewApirat/food-shop/pkg/orderHistory/repository"
+)
+
+func satang(v int64) domain.Money { return domain.Money(v) }
+
+func TestQuoteOrderSuccess(t *testing.T) {
+	foodShopRepositoryMock := new(_foodShopRepository.FoodShopRepositoryMock)
+	orderHistoryRepositoryMock := new(_orderHistoryReppsitory.OrderHistoryRepositoryMock)
+
+	foodShopService := _foodShopService.NewFoodShopServiceImpl(
+		foodShopRepositoryMock,
+		orderHistoryRepositoryMock,
+	)
+
+	// เตรียม menu item ที่ใช้ในเคส
+	foodShopRepositoryMock.On("FindMenuItemByCode", _foodShopModel.MenuItemCode("RED")).
+		Return(_foodShopModel.MenuItem{Code: "RED", Name: "Red set", Price: domain.THB(50)}, nil)
+
+	foodShopRepositoryMock.On("FindMenuItemByCode", _foodShopModel.MenuItemCode("GREEN")).
+		Return(_foodShopModel.MenuItem{Code: "GREEN", Name: "Green set", Price: domain.THB(40)}, nil)
+
+	type args struct {
+		label    string
+		in       _foodShopModel.PurchasingRequest
+		expected _foodShopModel.OrderQuote
+	}
+
+	cases := []args{
+		{
+			label: "Success: no member, pair discount applies to GREEN(2)",
+			in: _foodShopModel.PurchasingRequest{
+				Items:  map[string]int{"RED": 1, "GREEN": 2},
+				Member: false,
+			},
+			expected: _foodShopModel.OrderQuote{
+				Subtotal:       domain.THB(130), // 50 + 80
+				PairDiscount:   domain.THB(4),   // 5% ของ (GREEN 2 ชิ้น = 80) => 4
+				MemberDiscount: domain.THB(0),
+				Total:          domain.THB(126),
+			},
+		},
+		{
+			label: "Success: member stacks after pair discount (GREEN 2)",
+			in: _foodShopModel.PurchasingRequest{
+				Items:  map[string]int{"GREEN": 2},
+				Member: true,
+			},
+			expected: _foodShopModel.OrderQuote{
+				Subtotal:     domain.THB(80),
+				PairDiscount: domain.THB(4), // afterPair = 76
+				// member 10% ของ 76.00 = 7.60 => 760 satang
+				MemberDiscount: satang(760),
+				Total:          satang(6840),
+			},
+		},
+		{
+			label: "Success: normalize code (\" green \") works",
+			in: _foodShopModel.PurchasingRequest{
+				Items:  map[string]int{" green ": 2},
+				Member: false,
+			},
+			expected: _foodShopModel.OrderQuote{
+				Subtotal:       domain.THB(80),
+				PairDiscount:   domain.THB(4),
+				MemberDiscount: domain.THB(0),
+				Total:          domain.THB(76),
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			result, err := foodShopService.QuoteOrder(c.in)
+			assert.NoError(t, err)
+
+			// เทียบเฉพาะ field ที่เกี่ยวกับราคา (ถ้าคุณมี Lines แล้วและไม่อยากเทียบทั้งก้อน)
+			assert.Equal(t, c.expected.Subtotal, result.Subtotal)
+			assert.Equal(t, c.expected.PairDiscount, result.PairDiscount)
+			assert.Equal(t, c.expected.MemberDiscount, result.MemberDiscount)
+			assert.Equal(t, c.expected.Total, result.Total)
+		})
+	}
+
+	foodShopRepositoryMock.AssertExpectations(t)
+}
+
+func TestQuoteOrderFail(t *testing.T) {
+	foodShopRepositoryMock:= new(_foodShopRepository.FoodShopRepositoryMock)
+	orderHistoryRepositoryMock := new(_orderHistoryReppsitory.OrderHistoryRepositoryMock)
+	foodShopService := _foodShopService.NewFoodShopServiceImpl(
+		foodShopRepositoryMock,
+		orderHistoryRepositoryMock,
+	)
+
+	type args struct {
+		label    string
+		in       _foodShopModel.PurchasingRequest
+		expected error
+	}
+
+	cases := []args{
+		{
+			label: "Fail: empty order",
+			in: _foodShopModel.PurchasingRequest{
+				Items:  map[string]int{},
+				Member: false,
+			},
+			expected: &_foodShopException.EmptyOrderError{},
+		},
+		{
+			label: "Fail: invalid quantity",
+			in: _foodShopModel.PurchasingRequest{
+				Items:  map[string]int{"RED": 0},
+				Member: false,
+			},
+			expected: &_foodShopException.InvalidQuantityError{Qty: 0},
+		},
+		{
+			label: "Fail: invalid item code (blank)",
+			in: _foodShopModel.PurchasingRequest{
+				Items:  map[string]int{"   ": 1},
+				Member: false,
+			},
+			expected: &_foodShopException.InvalidItemCodeError{},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			result, err := foodShopService.QuoteOrder(c.in)
+			assert.Equal(t, _foodShopModel.OrderQuote{}, result)
+			assert.Error(t, err)
+			assert.IsType(t, c.expected, err)
+		})
+	}
+}

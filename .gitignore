@@ -23,5 +23,7 @@
 
 # Go workspace file
 go.work
+ * .txt
+ * . dockerignore
 
 # End of https://www.toptal.com/developers/gitignore/api/go

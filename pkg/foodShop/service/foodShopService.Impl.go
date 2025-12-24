@@ -3,14 +3,17 @@ package service
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/TewApirat/food-shop/pkg/foodShop/domain"
-	"github.com/TewApirat/food-shop/pkg/foodShop/model"
 	_foodShopException "github.com/TewApirat/food-shop/pkg/foodShop/exception"
+	_foodShopModel "github.com/TewApirat/food-shop/pkg/foodShop/model"
 	_foodShopRepository "github.com/TewApirat/food-shop/pkg/foodShop/repository"
+	_orderHistoryModel "github.com/TewApirat/food-shop/pkg/orderHistory/model"
+	_orderHistoryReppsitory "github.com/TewApirat/food-shop/pkg/orderHistory/repository"
 )
 
-var pairDiscountEligibleCodes = map[model.MenuItemCode]bool{
+var pairDiscountEligibleCodes = map[_foodShopModel.MenuItemCode]bool{
 	"ORANGE": true,
 	"PINK":   true,
 	"GREEN":  true,
@@ -24,62 +27,99 @@ const (
 
 type foodShopServiceImpl struct {
 	foodShopRepository _foodShopRepository.FoodShopRepository
+	orderHistoryRepository _orderHistoryReppsitory.OrderHistoryRepository
+	orderNo int
 }
 
-func NewFoodShopServiceImpl(foodShopRepository _foodShopRepository.FoodShopRepository) FoodShopService {
-	return &foodShopServiceImpl{foodShopRepository: foodShopRepository}
+func NewFoodShopServiceImpl(
+	foodShopRepository _foodShopRepository.FoodShopRepository,
+	orderHistoryRepository _orderHistoryReppsitory.OrderHistoryRepository,
+	) FoodShopService {
+	return &foodShopServiceImpl{
+		foodShopRepository: foodShopRepository,
+		orderHistoryRepository: orderHistoryRepository,
+	}
 }
 
-func (s *foodShopServiceImpl) GetMenuCatalog() ([]model.MenuItem, error) {
+func (s *foodShopServiceImpl) ListOrderHistory() ([]_orderHistoryModel.OrderHistoryEntry, error) {
+	return s.orderHistoryRepository.List()
+}
+
+func (s *foodShopServiceImpl) CountOrderHistory() (int, error) {
+	return s.orderHistoryRepository.Count()
+}
+
+
+func (s *foodShopServiceImpl) GetMenuCatalog() ([]_foodShopModel.MenuItem, error) {
 	return s.foodShopRepository.ListMenuItems()
 }
 
-func (s *foodShopServiceImpl) GetPromotions() ([]model.Promotion, error) {
+func (s *foodShopServiceImpl) GetPromotions() ([]_foodShopModel.Promotion, error) {
 	return s.foodShopRepository.ListPromotions()
 }
 
-// 1. check empty order
-// 2. pepare state for calculation
-// 3. loop items: validate → normalize → lookup → total price
+// QuoteOrder workflow
+// 1) Validate request
+// 2) Prepare state for calculation / promotion rules
+// 3) Process each input item (rawCode -> qty)
+// 4) Calculate pair discount (policy-level discount)
+// 5) Apply discounts in correct order
+// 6) Persist order history (side effect)
+// 7) Return quote result
 
 
-func (s *foodShopServiceImpl) QuoteOrder(req model.PurchasingRequest) (model.OrderQuote, error) {
+
+func (s *foodShopServiceImpl) QuoteOrder(req _foodShopModel.PurchasingRequest) (_foodShopModel.OrderQuote, error) {
 	if len(req.Items) == 0 {
-		return model.OrderQuote{}, &_foodShopException.EmptyOrderError{}
+		return _foodShopModel.OrderQuote{}, &_foodShopException.EmptyOrderError{}
 	}
 
-	qtyByCode := make(map[model.MenuItemCode]int)
-	priceByCode := make(map[model.MenuItemCode]domain.Money)
+	qtyByCode := make(map[_foodShopModel.MenuItemCode]int)
+	priceByCode := make(map[_foodShopModel.MenuItemCode]domain.Money)
+
+
+
+	lines := make([]_foodShopModel.OrderLine, 0, len(req.Items))
 
 	var subtotal domain.Money
 
 	for rawCode, qty := range req.Items {
 		if qty < 1 {
-			return model.OrderQuote{}, &_foodShopException.InvalidQuantityError{Qty: qty}
+			return _foodShopModel.OrderQuote{}, &_foodShopException.InvalidQuantityError{Qty: qty}
 		}
 
 		code, err := normalizeItemCode(rawCode)
 		if err != nil {
-			return model.OrderQuote{}, err
+			return _foodShopModel.OrderQuote{}, err
 		}
 
 		menuItem, err := s.foodShopRepository.FindMenuItemByCode(code)
 		if err != nil {
-			// ถ้า repo มี error ชนิด not found ของตัวเอง แนะนำให้ map เป็น domain/usecase error ให้ชัด
-			// ที่นี่ทำแบบห่อด้วย context เพื่อ debug ง่าย และปล่อยให้ controller ตัดสินใจ response
-			return model.OrderQuote{}, fmt.Errorf("find menu item by code %s: %w", code, err)
+			return _foodShopModel.OrderQuote{}, fmt.Errorf("find menu item by code %s: %w", code, err)
 		}
 
-		// เก็บราคาต่อ code ไว้ (กัน lookup ซ้ำใน calculatePairDiscount)
 		priceByCode[code] = menuItem.Price
 		qtyByCode[code] += qty
 
+
+
+
+		lineTotal := menuItem.Price.MulInt(qty)
 		subtotal = subtotal.Add(menuItem.Price.MulInt(qty))
+
+
+		lines = append(lines, _foodShopModel.OrderLine{
+			Code:      code,
+			Name:      menuItem.Name,
+			Qty:       qty,
+			UnitPrice: menuItem.Price,
+			LineTotal: lineTotal,
+		})
 	}
 
 	pairDiscount, err := calculatePairDiscount(qtyByCode, priceByCode)
 	if err != nil {
-		return model.OrderQuote{}, err
+		return _foodShopModel.OrderQuote{}, err
 	}
 
 	afterPairDiscount := subtotal.Sub(pairDiscount)
@@ -91,7 +131,23 @@ func (s *foodShopServiceImpl) QuoteOrder(req model.PurchasingRequest) (model.Ord
 
 	total := afterPairDiscount.Sub(memberDiscount)
 
-	return model.OrderQuote{
+	s.orderNo++
+
+	_ = s.orderHistoryRepository.Add(_orderHistoryModel.OrderHistoryEntry{
+	OrderNo:        s.orderNo,
+	CreatedAt:      time.Now(),
+	Member:         req.Member,
+	Line:          lines,
+	Subtotal:       subtotal,
+	PairDiscount:   pairDiscount,
+	MemberDiscount: memberDiscount,
+	Total:          total,
+	
+})
+
+
+	return _foodShopModel.OrderQuote{
+		Lines:          lines,
 		Subtotal:       subtotal,
 		PairDiscount:   pairDiscount,
 		MemberDiscount: memberDiscount,
@@ -99,19 +155,18 @@ func (s *foodShopServiceImpl) QuoteOrder(req model.PurchasingRequest) (model.Ord
 	}, nil
 }
 
-// แยก normalize ออกมาเพื่อให้อ่านง่าย + เทสต์ง่าย
-func normalizeItemCode(raw string) (model.MenuItemCode, error) {
+func normalizeItemCode(raw string) (_foodShopModel.MenuItemCode, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return "", &_foodShopException.InvalidItemCodeError{}
 	}
-	return model.MenuItemCode(strings.ToUpper(trimmed)), nil
+	return _foodShopModel.MenuItemCode(strings.ToUpper(trimmed)), nil
 }
 
-// pure function: ไม่มี IO, ไม่มี repo call, ไม่กลืน error
+
 func calculatePairDiscount(
-	qtyByCode map[model.MenuItemCode]int,
-	priceByCode map[model.MenuItemCode]domain.Money,
+	qtyByCode map[_foodShopModel.MenuItemCode]int,
+	priceByCode map[_foodShopModel.MenuItemCode]domain.Money,
 ) (domain.Money, error) {
 
 	totalDiscount := domain.Money(0)
@@ -123,7 +178,6 @@ func calculatePairDiscount(
 
 		unitPrice, ok := priceByCode[code]
 		if !ok {
-			// เป็น “สภาวะผิดปกติ” เพราะ code นี้ถูกคิด subtotal ไปแล้วแต่ไม่มีราคา
 			return domain.Money(0), &_foodShopException.MenuItemPriceMissingError{Code: code}
 		}
 
@@ -136,3 +190,4 @@ func calculatePairDiscount(
 
 	return totalDiscount, nil
 }
+

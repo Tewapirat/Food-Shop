@@ -1,9 +1,16 @@
 package service
 
-import "github.com/TewApirat/food-shop/pkg/foodShop/model"
+import (
+	_foodShopModel "github.com/TewApirat/food-shop/pkg/foodShop/model"
+	_orderHistoryModel "github.com/TewApirat/food-shop/pkg/orderHistory/model"
+	
 
+)
 type FoodShopService interface {
-	GetMenuCatalog() ([]model.MenuItem, error)
-	GetPromotions() ([]model.Promotion, error)
-	QuoteOrder(req model.PurchasingRequest) (model.OrderQuote, error)
+	GetMenuCatalog() ([]_foodShopModel.MenuItem, error)
+	GetPromotions() ([]_foodShopModel.Promotion, error)
+	QuoteOrder(req _foodShopModel.PurchasingRequest) (_foodShopModel.OrderQuote, error)
+	ListOrderHistory() ([]_orderHistoryModel.OrderHistoryEntry, error)
+	CountOrderHistory() (int, error)
+
 }
