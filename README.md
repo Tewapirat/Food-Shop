@@ -105,8 +105,8 @@ Promotion catalog showing all active discount policies, eligibility conditions, 
 ### 4) Normalization (Input Cleanup / Canonicalization)
 **Suite:** `TestQuoteOrder_Normalization`
 
-- `Normalize code: "_green_" => GREEN`
-- `Normalize + merge qty: {"_green_":1,"GREEN":1} => GREEN=2`
+- `Normalize code: " green " => GREEN`
+- `Normalize + merge qty: {"green":1,"GREEN":1} => GREEN=2`
 
 
 ## Usage Examples
